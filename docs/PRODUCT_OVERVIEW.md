@@ -291,7 +291,7 @@ Optional, and designed to degrade gracefully. With a `GEMINI_API_KEY`, relevant 
 ## 9. Data, security and privacy
 
 - **Keys stay on the server.** `TINYFISH_API_KEY`, `GEMINI_API_KEY` and Telegram credentials are read from `.env` server-side; `/api/status` reports only whether a key exists. There is no key-entry field in the browser.
-- **Local storage.** One SQLite file holds `jobs`, `tracker`, `searches`, `companies`, `notifications` and a small `kv` cache (profile, search cache). Nothing leaves your machine except searches and page reads sent to TinyFish and, if enabled, posting text sent to Gemini.
+- **Your data, your database.** Everything (`jobs`, `tracker`, `searches`, `companies`, `notifications`, and a small key/value store for the profile and search cache) goes through one storage interface with two backends: a **local SQLite file** by default, or **your own Google Firestore project** when you connect one (the way to run on Vercel with permanent data). Nothing leaves your control except searches and page reads sent to TinyFish and, if enabled, posting text sent to Gemini.
 - **Public data only.** Scout reads publicly available pages. It collects no credentials and does not submit applications.
 - **Repo hygiene.** `.env`, the database and build output are git-ignored; `.env.example` has no secrets.
 
@@ -302,11 +302,11 @@ Optional, and designed to degrade gracefully. With a `GEMINI_API_KEY`, relevant 
 - Location matching is text-based with aliases, not geocoding.
 - Foreign pay is converted at fixed approximate rates for comparison and display.
 - Sites with a cookie wall or bot check may defeat both Fetch and the Agent; Scout reports this.
-- The alert scheduler lives in the server process, so alerts only fire while Scout runs.
+- On a normal server the alert timer lives in the process, so alerts fire only while Scout runs; on serverless hosts an external scheduler such as Google Cloud Scheduler calls a protected endpoint instead.
 - Quick searches read a bounded number of pages by design; Standard and Deep read more.
 
 **Next**
-Hosted alerts worker · email and WhatsApp delivery · embedding-based semantic matching · AI-written cover notes and resume bullets from the skill-gap analysis · ghost-job detection · a browser extension for one-click save.
+Email and WhatsApp delivery · per-user accounts · embedding-based semantic matching · AI-written cover notes and resume bullets from the skill-gap analysis · ghost-job detection · a browser extension for one-click save.
 
 ## 11. Challenge requirements, mapped
 

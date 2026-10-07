@@ -24,7 +24,7 @@ export function ScoutProvider({ children }) {
   const [bellOpen, setBellOpen] = useState(false);
   const [perm, setPerm] = useState('default');
   const [jump, setJump] = useState(null);         // { q } asks Discover to focus on one company
-  const seen = useRef(null), bgPrev = useRef(0);
+  const seen = useRef(null), bgPrev = useRef(0), unreadSeen = useRef(null);
   const running = useRef(false), ready = useRef(false), dataRef = useRef(EMPTY), timer = useRef();
   dataRef.current = data;
 
@@ -127,16 +127,18 @@ export function ScoutProvider({ children }) {
     try {
       const s = await api('/status');
       setStatus(s);
+      // The full notification list is only fetched when the unread count changes (cheap on metered databases like Firestore).
+      if (s.unread !== unreadSeen.current) { unreadSeen.current = s.unread; pollNotifs(); }
       if (bgPrev.current > 0 && s.background === 0 && !running.current) {
         await rerank();
         notify('Slower sites finished reading in the background. Results updated.');
       }
       bgPrev.current = s.background;
     } catch { /* offline */ }
-  }, [rerank, notify]);
+  }, [rerank, notify, pollNotifs]);
 
   useEffect(() => {
-    const tick = () => { if (document.visibilityState === 'visible') { pollNotifs(); pollStatus(); } };
+    const tick = () => { if (document.visibilityState === 'visible') pollStatus(); };
     tick();
     const id = setInterval(tick, 10000);
     return () => clearInterval(id);

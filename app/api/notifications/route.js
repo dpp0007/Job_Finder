@@ -1,9 +1,9 @@
 import { listNotifications, markRead } from '@/lib/notify';
 import { handler, json } from '@/lib/http';
 
-export const GET = handler(async () => json(listNotifications()));
+export const GET = handler(async () => json(await listNotifications()));
 
 export const POST = handler(async req => {
-  markRead(await req.json());
-  return json(listNotifications());
+  await markRead(await req.json());
+  return json(await listNotifications());
 });

@@ -4,7 +4,16 @@
   "description": "Live job and internship finder: reads company careers pages and job portals with TinyFish Search, Fetch and Agent, then ranks every opening against what you want.",
   "private": true,
   "license": "MIT",
-  "keywords": ["jobs", "internships", "careers", "tinyfish", "gemini", "nextjs", "web-agent", "job-search"],
+  "keywords": [
+    "jobs",
+    "internships",
+    "careers",
+    "tinyfish",
+    "gemini",
+    "nextjs",
+    "web-agent",
+    "job-search"
+  ],
   "engines": {
     "node": ">=22.13"
   },
@@ -12,9 +21,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node test.js && node test-llm.js && node test-describe.js"
+    "test": "node test-store.js && node test-discover.js",
+    "test:firestore": "npx --yes firebase-tools emulators:exec --only firestore --project demo-scout \"node test-store.js && node test-discover.js\"",
+    "check": "node scripts/check.mjs"
   },
   "dependencies": {
+    "@google-cloud/firestore": "^9.3.1",
     "next": "^16.4.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"

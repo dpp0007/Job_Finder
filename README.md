@@ -90,6 +90,15 @@ Open the app, enter a role and a city, and press **Search live**. First results 
 
 > **Tip:** if a stale `TINYFISH_API_KEY` is set in your system environment, don't worry. The key in `.env` always wins.
 
+### Check your setup
+
+```bash
+npm run check             # tests your TinyFish key and your storage (SQLite or Firestore) with real calls
+npm run check -- --ai     # also tests Gemini (one tiny paid call)
+```
+
+It prints a ✓ or ✗ for each part and says exactly what to fix. Typical output: `✓ TinyFish key`, `✓ Storage: firestore (project …) — connected; wrote and read back a test value`.
+
 ### Production
 
 ```bash
@@ -101,34 +110,78 @@ Scout stores its data in a local SQLite file (`data/scout.db`), so run it on a m
 
 ## Deploying
 
-Scout is a normal Next.js app, but it keeps its data in a **local SQLite file** and runs a background alert scheduler, which suits a server with a disk better than a serverless platform.
+Scout stores its data through one small interface with **two backends**, chosen automatically:
 
-| Host | What to expect |
-|---|---|
-| **Your machine, a VPS, Railway, Render or Fly.io (with a volume)** | Everything works, including persistent data and scheduled alerts. Recommended. |
-| **Vercel / serverless** | The app runs, with caveats below. |
+| Backend | Used when | Best for |
+|---|---|---|
+| **SQLite** (a local file) | default | Your machine, a VPS, Railway / Render / Fly.io with a disk. Zero setup. |
+| **Google Firestore** | `GOOGLE_SERVICE_ACCOUNT_JSON` is set | **Vercel** and other serverless hosts, where there is no persistent disk. Permanent, shared data. |
 
-**On Vercel**
-- Set `TINYFISH_API_KEY` (and optionally `GEMINI_API_KEY`) under *Project → Settings → Environment Variables*, set the Node.js version to **22.x**, then redeploy. A `.env` file is not deployed.
-- **Storage is temporary.** The project folder is read-only, so Scout uses the temp directory. Saved jobs, the tracker, alerts and the search cache can disappear when an instance is recycled or when a request lands on a different instance. The app shows a notice when this is the case.
-- **No scheduler.** Serverless functions can't run a background timer, so scheduled alerts don't fire. (The *Send a demo alert* button still works.)
+Force one with `STORE=sqlite` or `STORE=firestore`. Your tracker, saved searches, companies, notifications, the job index and your profile all live in whichever backend is active.
+
+### Deploying on Vercel with Google Firestore
+
+1. **Create the Google Cloud pieces** (about 10 minutes, see [Google Cloud setup](#google-cloud-setup-firestore--scheduler) below).
+2. In Vercel, open *Project → Settings → Environment Variables* and add:
+   - `TINYFISH_API_KEY`
+   - `GOOGLE_SERVICE_ACCOUNT_JSON` (the whole service-account key)
+   - `CRON_SECRET` (any long random string; needed for scheduled alerts)
+   - `GEMINI_API_KEY` (optional)
+3. Set the Node.js version to **22.x**, then redeploy. A `.env` file is not deployed: use the Vercel variables.
+4. Open `https://<your-app>.vercel.app/api/status`. A healthy deployment shows `"configured": true` and `"storage": {"kind": "firestore", "ephemeral": false, "error": null}`. Then open the app: the top bar and a notice tell you, in plain language, if anything is misconfigured.
+
+**What to know on Vercel**
 - **Long searches** stream for up to the depth's time budget (40 / 75 / 150 s). Make sure your plan's function duration allows it, or use Quick depth.
 - Slow background work (a TinyFish Agent run) may be cut off once the response ends.
+- Serverless functions cannot run a background timer, so **scheduled alerts are triggered from outside** by Google Cloud Scheduler calling `/api/cron/tick` (set up below). Without it, alerts don't run on their own (the *Send a demo alert* button still works).
+- Put Firestore in a region close to your Vercel functions (for users in India, `asia-south1` Mumbai, and set the Vercel function region to Mumbai `bom1`) to keep each request fast.
 
-For persistent data on Vercel, the storage layer would need to move to a hosted database such as Turso (libSQL) or Postgres; see the roadmap.
+### Google Cloud setup (Firestore + Scheduler)
+
+You need a Google Cloud project. Everything below stays inside the free tiers for personal use (at the time of writing: Firestore's free quota is 1 GiB of storage and 50,000 reads / 20,000 writes per day, and Cloud Scheduler's first three jobs per billing account are free). If Google asks you to enable billing, the free quotas still apply.
+
+**1. Create the database**
+- Open the [Google Cloud console](https://console.cloud.google.com), pick or create a project, then go to **Firestore → Create database**.
+- Choose **Native mode** (the Standard edition) and a location. Security rules don't matter: Scout reaches the database only from the server, with a service account.
+
+**2. Create a service account and key**
+- **IAM & Admin → Service Accounts → Create service account** (name it e.g. `scout`).
+- Grant it the role **Cloud Datastore User** (this is the role that grants read/write access to Firestore).
+- Open the account, **Keys → Add key → Create new key → JSON**. A `.json` file downloads. **Treat it like a password and never commit it.**
+
+**3. Give the key to Scout** as `GOOGLE_SERVICE_ACCOUNT_JSON`. Either of these works:
+- the **whole file contents on a single line**, or
+- the file **base64-encoded** (PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("key.json"))`; macOS/Linux: `base64 -w0 key.json`), which avoids quoting problems.
+
+In a local `.env`, wrap raw JSON in single quotes: `GOOGLE_SERVICE_ACCOUNT_JSON='{"type":"service_account", ...}'`. `FIRESTORE_PROJECT_ID` is optional (it defaults to the project in the key).
+
+**4. Scheduled alerts (optional but recommended)**
+- Choose a random `CRON_SECRET` and add it to your environment.
+- In the console open **Cloud Scheduler → Create job**:
+  - Frequency: e.g. `0 */6 * * *` (every 6 hours)
+  - Target type: **HTTP**, method **GET**
+  - URL: `https://<your-app>.vercel.app/api/cron/tick`
+  - Header: `Authorization` = `Bearer <your CRON_SECRET>`
+- Each call runs every alert that is due (each alert has its own 3–24 h interval), creates notifications for new matches, and re-checks saved jobs. The endpoint stays **disabled until `CRON_SECRET` is set** and rejects any call without the right secret, because a run spends TinyFish and Gemini credits.
+
+**Free-tier budgeting.** Scout is built to be read-frugal: the job index is cached in memory, writes are batched, and the browser only asks for the notification list when the unread count changes, so normal personal use stays far below 50,000 reads a day. If you do exceed it, the app says so ("The Firestore free daily quota is used up…") and recovers at midnight Pacific time.
 
 ## Configuration
 
-All configuration is through environment variables in `.env`. Keys never reach the browser.
+All configuration is through environment variables (a local `.env`, or your host's settings). Keys never reach the browser.
 
 | Variable | Required | Purpose |
 |---|---|---|
 | `TINYFISH_API_KEY` | **Yes** | TinyFish Search, Fetch and Agent. |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | For Vercel | Google service-account key (JSON or base64). Switches storage to Firestore. |
+| `FIRESTORE_PROJECT_ID` | No | Defaults to the project in the key. |
+| `CRON_SECRET` | For scheduled alerts on serverless | Enables `/api/cron/tick`; the caller sends `Authorization: Bearer <secret>`. |
 | `GEMINI_API_KEY` | No | Turns on AI reading of postings. Needs a Google AI Studio key with billing credits. |
 | `GEMINI_MODEL` | No | Defaults to `gemini-3.5-flash-lite`. |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | No | Also push alerts to Telegram. |
+| `STORE` | No | `sqlite` or `firestore` to override the automatic choice. |
+| `SCOUT_DB` | No | SQLite file path (default `data/scout.db`). |
 | `PORT` | No | Dev server port (default `3000`). |
-| `SCOUT_DB` | No | Database file path (default `data/scout.db`). |
 
 If a key is missing or rejected, the app says so in plain language (top bar and toasts) and degrades gracefully: no Gemini key means regex-only extraction, and nothing else changes.
 
@@ -163,11 +216,16 @@ lib/                     Server and shared logic (no framework code)
   rank.js                  Role matching, hard filters, scoring, dedupe
   llm.js                   Gemini extraction, validation and merge rules
   describe.js              Turns scraped text into facts, headings, lists
-  db.js, service.js        SQLite access and shared use cases
+  store.js                 One async storage interface, backend chosen automatically
+  store/sqlite.js          SQLite backend (local file)
+  store/firestore.js       Google Firestore backend (cached, quota-frugal)
+  store/shared.js          Rules both backends share (merge, dedupe, replace)
+  service.js, env.js       Shared use cases; configuration reader
   notify.js                Notifications and optional Telegram push
-instrumentation.js       Starts the alert scheduler when the server boots
+instrumentation.js       Starts the alert timer on a normal server (serverless uses /api/cron/tick)
 docs/PRODUCT_OVERVIEW.md Product story and TinyFish deep dive
-test*.js                 Offline test suites (no network, no keys)
+test-store.js            Storage contract test (SQLite or Firestore emulator)
+test-discover.js         Discovery pipeline against a simulated TinyFish
 ```
 
 ## API
@@ -192,16 +250,22 @@ Everything the UI does is available over HTTP. `search` and `companies/scan` str
 ## Tests
 
 ```bash
-npm test
+npm test                 # SQLite: storage contract + the full discovery pipeline
+npm run test:firestore   # the same two suites on Google's Firestore emulator (needs Java 21+)
 ```
 
-Three offline suites cover parsing and feature extraction, ranking and every filter, deduplication, Indian pay formats, the Gemini request/validation/merge path (against a local stand-in server), and the description reader (against real Internshala, Lever and Cutshort samples). They need no network and no API keys.
+- **`test-store.js`** checks every storage operation (jobs, merge and re-parse replacement, tracker, alerts, companies, notifications, persistence after a cold read) with identical assertions on both backends.
+- **`test-discover.js`** runs the real discovery pipeline against a *simulated* TinyFish (fake Search and Fetch responses, including the escaped-JSON quirk and a fake job board) and checks that the right jobs are stored, filtered, ranked and cached.
+
+Neither needs a network connection or any API key. `test:firestore` downloads Google's emulator on first run.
 
 ## Security and privacy
 
 - API keys live in `.env` and are read on the server only. The browser is told whether a key is configured, never its value.
 - `.env`, the local database and build output are git-ignored. `.env.example` contains no secrets.
-- Your preferences, resume, tracker and alerts are stored in a local SQLite file. Nothing is sent anywhere except the searches and page reads you trigger (to TinyFish) and, if enabled, posting text (to Gemini).
+- Your preferences, resume, tracker and alerts live in a local SQLite file, or in **your own** Firestore project if you connect one. Nothing is sent anywhere except the searches and page reads you trigger (to TinyFish) and, if enabled, posting text (to Gemini).
+- The Google service-account key is read on the server only and is git-ignored with `.env`. Give the account only the *Cloud Datastore User* role.
+- `/api/cron/tick` is closed unless `CRON_SECRET` is set, and requires it on every call.
 - Scout reads publicly available pages. Always confirm details on the employer's own site before applying.
 
 ## Known limitations
@@ -210,13 +274,13 @@ Three offline suites cover parsing and feature extraction, ranking and every fil
 - Location matching is text-based with country and Indian-city aliases ("California" will not match "San Francisco, CA").
 - Foreign pay is converted to ₹ at fixed approximate rates (marked with `≈`) for comparison and display only.
 - Some sites put a cookie wall or bot check in front of automated readers. Scout reports this instead of hiding it, and the Agent may or may not get through.
-- The alert scheduler runs inside the server process, so alerts only fire while Scout is running.
+- On a normal server the alert timer runs inside the process, so alerts fire only while Scout runs. On serverless hosts alerts need an external scheduler (Cloud Scheduler) calling `/api/cron/tick`.
+- On Firestore the job index is cached for 60 s per server instance, so a change made through another instance can take up to a minute to appear there.
 - Telegram delivery is implemented but needs your own bot to try.
 
 ## Roadmap
 
-- Hosted database adapter (Turso / Postgres) so Scout can run on Vercel with permanent data
-- Hosted worker so alerts fire when your laptop is closed
+- Per-user accounts, so one deployment can serve several people
 - Email and WhatsApp delivery
 - Semantic matching with embeddings ("ML engineer" ≈ "applied scientist")
 - AI-written cover notes and resume bullets per job, using the skill-gap analysis

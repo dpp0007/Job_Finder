@@ -9,14 +9,15 @@ export const POST = handler(async req => {
   if (needKey()) { const e = new Error('nokey'); e.code = 'nokey'; e.status = 503; throw e; }
   const prefs = { ...DEFAULT_PREFS, ...b.prefs };
   return ndjson(async emit => {
-    // every committed batch becomes a ranked snapshot, throttled so the UI isn't flooded
-    let last = 0;
-    const snapshot = (final = false) => {
-      if (!final && Date.now() - last < 1500) return;
+    // every committed batch becomes a ranked snapshot, throttled so the UI isn't flooded; snapshots are queued so none arrives after "done"
+    let last = 0, chain = Promise.resolve();
+    const snapshot = () => {
+      if (Date.now() - last < 1500) return;
       last = Date.now();
-      emit({ type: 'results', ...ranked(prefs, b.resume || '') });
+      chain = chain.then(async () => emit({ type: 'results', ...(await ranked(prefs, b.resume || '')) })).catch(() => {});
     };
     const out = await runSearch(prefs, e => { emit(e); if (e.type === 'batch') snapshot(); });
-    emit({ type: 'done', stats: out.stats, ...ranked(prefs, b.resume || '') });
+    await chain;
+    emit({ type: 'done', stats: out.stats, ...(await ranked(prefs, b.resume || '')) });
   });
 });
