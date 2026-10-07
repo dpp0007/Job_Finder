@@ -1,11 +1,13 @@
-import { store } from '@/lib/store';
+import { store, forUser } from '@/lib/store';
 import { normCompany } from '@/lib/parse';
+import { isNumId } from '@/lib/validate';
 import { handler, json } from '@/lib/http';
 
 // Openings already indexed for one watchlist company, so the Companies page can show what a scan found.
-export const GET = handler(async (_req, ctx) => {
-  const { id } = await ctx.params;
-  const c = await store.getCompany(Number(id));
+export const GET = handler(async (_req, { params, user }) => {
+  const { id } = await params;
+  if (!isNumId(id)) return json({ error: 'Unknown company' }, 400);
+  const c = await forUser(user.uid).getCompany(Number(id));
   if (!c) return json({ error: 'Unknown company' }, 404);
   const nm = normCompany(c.name), slug = (c.slug || '').toLowerCase();
   const jobs = (await store.loadJobs(120))

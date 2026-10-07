@@ -44,7 +44,7 @@ Scout is a local web app (Next.js + SQLite). You describe what you want once; Sc
 - **Anyone who is on careers portals every week** and wants to stop.
 
 ### What you do
-1. **Describe the job:** role, city, level, work mode, job type, pay floor, visa needs, keywords, and optionally paste your resume.
+1. **Describe the job:** role, city, level, work mode, job type, pay floor, visa needs, keywords, and optionally upload your resume (PDF, DOCX or TXT).
 2. **Press Search live.** The first results appear within seconds and keep improving while Scout reads more of the web.
 3. **Read a ranked, honest list.** Each row shows a 0–100 match score, why it matched, pay, work mode, visa stance, skills and a direct **Apply** link. A drawer shows the full description in a clean, readable form.
 4. **Act:** save to the tracker, hide what you don't want, add companies to a watchlist, or save the search as an alert.
@@ -237,7 +237,7 @@ The survivors are scored 0–100 from weighted components, normalised over the c
 | Seniority | 15 |
 | Keywords | 12 |
 | Visa (when you need sponsorship) | 10 |
-| Skill overlap with your resume | 10 |
+| Resume: skill overlap, wording, experience and field (only when you upload one) | up to 37 |
 | Freshness | 8 |
 | Pay vs your floor | 5 |
 

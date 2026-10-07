@@ -1,5 +1,6 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
+import { safeHref } from '@/lib/client';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useScout } from './ScoutProvider';
 import Drawer from './Drawer';
 import Select from './Select';
@@ -90,6 +91,7 @@ function Row({ j, isNew, onOpen, onAct, near }) {
           {!['fulltime', 'intern'].includes(j.employmentType) && <span className="badge">{cap(j.employmentType)}</span>}
           {VISA[j.visa] && <span className={'badge ' + VISA[j.visa][1]}>{VISA[j.visa][0]}</span>}
           {j.optCpt && <span className="badge good">OPT/CPT</span>}
+          {j.fit != null && <span className="badge fit" title="How well your resume matches this posting">Resume fit {j.fit}%</span>}
           {j.salary && <span className="badge good">{money(j.salary)}</span>}
           {j.sources.length > 1 && <span className="badge">{j.sources.length} sources</span>}
         </div>
@@ -97,7 +99,7 @@ function Row({ j, isNew, onOpen, onAct, near }) {
         {!near && <div className="why">{j.reasons.slice(0, 3).map(r => <span key={r}>{r}</span>)}</div>}
       </div>
       <div className="acts" onClick={e => e.stopPropagation()}>
-        <a className="btn" href={j.url} target="_blank" rel="noopener noreferrer">Apply</a>
+        <a className="btn" href={safeHref(j.url)} target="_blank" rel="noopener noreferrer">Apply</a>
         <button className="link" onClick={() => onAct(j, j.stage === 'saved' ? 'unsave' : 'save')}>{j.stage ? 'Saved ✓' : 'Save'}</button>
         <button className="link muted-link" onClick={() => onAct(j, 'hide')}>Hide</button>
       </div>
@@ -113,15 +115,28 @@ const Skeleton = () => <div aria-busy="true">{[0, 1, 2, 3].map(i => (
 const FACET0 = { q: '', mode: '', level: '', visa: false, paid: false, fresh: false, saved: false };
 
 export default function Results() {
-  const { data, patchResults, notify, run, loaded, started, setStarted, setTab, jump, setJump, pending, flushPending, prefs, setPrefs, setPref, search, runExample } = useScout();
+  const { data, patchResults, notify, run, loaded, started, setStarted, setTab, jump, setJump, pending, flushPending, prefs, setPrefs, setPref, search, runExample, resume, rerank } = useScout();
   const { results, dropped, scanned, newSince } = data;
   const near = data.near || [];
+  const corrected = data.corrected || [];
   const [sort, setSort] = useState('score');
   const [open, setOpen] = useState(null);
   const [f, setF] = useState(FACET0);
   const [shown, setShown] = useState(PAGE);
   const searching = run && !run.done;
   useEffect(() => setShown(PAGE), [f, sort]);
+
+  // With a resume, the best results need their posting text to be compared with it. Read the top unread ones (20 at most), then re-rank.
+  const tried = useRef(new Set()), busy = useRef(false);
+  const [reading, setReading] = useState(0);
+  useEffect(() => {
+    if (!resume || !started || searching || busy.current || tried.current.size >= 20) return;
+    const todo = results.filter(j => !j.hasDesc && !tried.current.has(j.id)).slice(0, 10);
+    if (!todo.length) return;
+    todo.forEach(j => tried.current.add(j.id));
+    busy.current = true; setReading(todo.length);
+    api('/jobs/read', 'POST', { jobIds: todo.map(j => j.id), prefs }).then(() => rerank()).catch(() => {}).finally(() => { busy.current = false; setReading(0); });
+  }, [resume, started, searching, results]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (jump) { setF({ ...FACET0, q: jump.q }); setJump(null); } }, [jump, setJump]);
 
   const facets = useMemo(() => {
@@ -140,6 +155,7 @@ export default function Results() {
       && (!f.visa || j.visa === 'yes') && (!f.paid || j.salary) && (!f.saved || j.stage === 'saved')
       && (!f.fresh || j.firstSeen > Date.now() - 2 * 864e5 || (j.postedAt && j.postedAt > Date.now() - 3 * 864e5)));
     if (sort === 'date') a.sort((x, y) => (y.postedAt || y.firstSeen) - (x.postedAt || x.firstSeen));
+    if (sort === 'fit') a.sort((x, y) => (y.fit ?? -1) - (x.fit ?? -1) || y.score - x.score);
     if (sort === 'salary') a.sort((x, y) => (y.salary?.max || 0) - (x.salary?.max || 0));
     return a;
   }, [results, sort, f]);
@@ -156,6 +172,7 @@ export default function Results() {
   const relax = k => setPrefs(p => ({ ...p, ...RELAX[k][1]() }));
   const faceted = JSON.stringify(f) !== JSON.stringify(FACET0);
   const noNew = run?.done && !run.error && !run.stats.found;
+  const roleMiss = scanned > 0 && (dropped.role || 0) >= scanned * 0.9 && !results.length;
   const tog = k => setF(x => ({ ...x, [k]: !x[k] }));
   const drop = Object.entries(dropped).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, v]) => `${num(v)} ${DROP_LABEL[k] || k}`).join(', ');
 
@@ -187,7 +204,8 @@ export default function Results() {
     else empty = (
       <div className="empty">
         <h3>{noNew ? 'Nothing new this time' : 'No exact matches'}</h3>
-        <p>{noNew ? 'The live search found no new openings for these settings.' : scanned ? 'Your filters removed everything. Loosen one:' : 'Nothing indexed yet. Run a live search to pull fresh openings.'}</p>
+        <p>{roleMiss ? `None of the ${scanned} openings in your index match “${(prefs?.roles || []).join(', ')}”. Check the spelling, or try a broader title such as “Software Engineer”.`
+          : noNew ? 'The live search found no new openings for these settings.' : scanned ? 'Your filters removed everything. Loosen one:' : 'Nothing indexed yet. Run a live search to pull fresh openings.'}</p>
         <div className="chips center">
           {reasons.map(([k, n]) => <span className="chip" key={k} onClick={() => relax(k)}>{RELAX[k][0]} · +{n}</span>)}
           {prefs?.depth !== 'deep' && <span className="chip" onClick={() => { setPref('depth', 'deep'); search({ ...prefs, depth: 'deep' }); }}>Search deeper</span>}
@@ -200,13 +218,17 @@ export default function Results() {
   return (
     <>
       {pending && <button className="pill-new" onClick={() => { flushPending(); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>↑ {Math.max(pending.snap.results.length - results.length, 0) || 'Updated'} {pending.snap.results.length > results.length ? 'new matches' : 'results'} · Show</button>}
+      {corrected.length > 0 && (
+        <p className="corrected">Showing results for <b>{corrected.map(c => c.to).join(', ')}</b> (you typed {corrected.map(c => c.from).join(', ')}).</p>
+      )}
       <Insights results={results} />
       <div className="results-head">
         <h2>{faceted ? `${list.length} of ${results.length}` : results.length} {results.length === 1 ? 'match' : 'matches'}{searching && <span className="live"><span className="spin dark" /> live</span>}</h2>
-        <span className="meta">Showing the best of {num(scanned)} openings in your index{drop ? `. Hidden: ${drop}.` : '.'}</span>
+        <span className="meta">Showing the best of {num(scanned)} openings in your index{resume ? ', ranked with your resume' : ''}{drop ? `. Hidden: ${drop}.` : '.'}</span>
+        {reading > 0 && <span className="readnote"><span className="spin dark" /> Reading {reading} postings to work out your resume fit…</span>}
         <span className="grow" />
         <Select variant="pill" value={sort} onChange={setSort} label="Sort results" align="right"
-          options={[['score', 'Best match'], ['date', 'Newest first'], ['salary', 'Highest pay']]} />
+          options={[['score', 'Best match'], ...(resume ? [['fit', 'Best resume fit']] : []), ['date', 'Newest first'], ['salary', 'Highest pay']]} />
         <button className="ghost" disabled={!list.length} onClick={() => exportCsv(list)}>Export CSV</button>
       </div>
 
@@ -225,7 +247,7 @@ export default function Results() {
 
       {!loaded || (searching && !list.length && !near.length) ? <Skeleton /> : (
         <>
-          {list.slice(0, shown).map(j => <Row key={j.id} j={j} isNew={newSince && j.firstSeen >= newSince} onOpen={setOpen} onAct={act} />)}
+          {list.slice(0, shown).map(j => <Row key={j.id} j={j} isNew={!!newSince && j.firstSeen >= newSince} onOpen={setOpen} onAct={act} />)}
           {list.length > shown && <div className="more"><button className="ghost" onClick={() => setShown(s => s + PAGE)}>Show {Math.min(PAGE, list.length - shown)} more · {list.length - shown} left</button></div>}
         </>
       )}

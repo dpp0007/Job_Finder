@@ -1,6 +1,8 @@
 'use client';
+import { safeHref } from '@/lib/client';
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { useScout } from './ScoutProvider';
+import { checkCompany } from '@/lib/validate';
 import { api, ago, cap, cleanTitle, hostOf, money, shortLoc, stream, SUGGESTED_COMPANIES } from '@/lib/client';
 
 function Openings({ c }) {
@@ -11,7 +13,7 @@ function Openings({ c }) {
   return (
     <div className="openings">
       {data.jobs.map(j => (
-        <a className="orow" key={j.id} href={j.url} target="_blank" rel="noopener noreferrer">
+        <a className="orow" key={j.id} href={safeHref(j.url)} target="_blank" rel="noopener noreferrer">
           <span className="clip"><b>{cleanTitle(j.title)}</b> <span className="muted">{j.location ? '· ' + shortLoc(j.location).split(';')[0] : ''}</span></span>
           <span className="muted sm">{j.salary ? money(j.salary) + ' · ' : ''}{j.postedAt ? ago(j.postedAt) : 'found ' + ago(j.firstSeen)} ↗</span>
         </a>
@@ -25,6 +27,7 @@ export default function Companies() {
   const { notify, prefs } = useScout();
   const [list, setList] = useState(null);
   const [text, setText] = useState('');
+  const [err, setErr] = useState('');
   const [busy, setBusy] = useState('');       // 'add:<name>' | 'scan:<id>'
   const [prog, setProg] = useState({});       // company id -> live status text
   const [open, setOpen] = useState(null);     // company id whose openings are expanded
@@ -49,6 +52,9 @@ export default function Companies() {
   const add = async name => {
     const v = (name ?? text).trim();
     if (!v) return;
+    const ok = checkCompany(v);
+    if (!ok.ok) return setErr(ok.error);
+    setErr('');
     setBusy('add:' + v);
     try {
       const c = await api('/companies', 'POST', { input: v });
@@ -65,9 +71,10 @@ export default function Companies() {
       <h2 className="pg">Company watchlist</h2>
       <p className="lead">Add the companies you care about by name or careers link. Scout reads their openings straight away and re-checks them in every search. Known job boards are read directly; custom careers sites are tried with Fetch first, then a TinyFish Agent.</p>
       <div className="addbar">
-        <input type="text" value={text} placeholder="Company name or careers link, e.g. Razorpay" onChange={e => setText(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} disabled={adding} />
+        <input type="text" value={text} placeholder="Company name or careers link, e.g. Razorpay" onChange={e => { setText(e.target.value); setErr(''); }} maxLength={200} aria-invalid={!!err} onKeyDown={e => e.key === 'Enter' && add()} disabled={adding} />
         <button className="primary" disabled={!!busy || !text.trim()} onClick={() => add()}>{adding ? 'Finding…' : 'Add & scan'}</button>
       </div>
+      {err && <div className="fmsg" role="alert">{err}</div>}
       {list?.length ? (
         <table className="tbl"><thead><tr><th>Company</th><th>Reader</th><th>Last scan</th><th /></tr></thead><tbody>
           {list.map(c => {
@@ -75,7 +82,7 @@ export default function Companies() {
             return (
               <Fragment key={c.id}>
                 <tr>
-                  <td><b>{c.name}</b><div className="sm"><a href={c.careers_url} target="_blank" rel="noopener noreferrer">{hostOf(c.careers_url)}</a></div></td>
+                  <td><b>{c.name}</b><div className="sm"><a href={safeHref(c.careers_url)} target="_blank" rel="noopener noreferrer">{hostOf(c.careers_url)}</a></div></td>
                   <td><span className={'badge ' + (c.ats ? 'good' : 'warn')}>{c.ats ? cap(c.ats) + ' board' : 'Custom site'}</span></td>
                   <td>
                     {scanning ? <span className="sm"><span className="spin dark" /> {prog[c.id]}</span>

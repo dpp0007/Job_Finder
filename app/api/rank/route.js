@@ -1,7 +1,4 @@
 import { ranked } from '@/lib/service';
-import { handler, json } from '@/lib/http';
+import { handler, json, readJson } from '@/lib/http';
 
-export const POST = handler(async req => {
-  const b = await req.json();
-  return json(await ranked(b.prefs, b.resume || ''));
-});
+export const POST = handler(async (req, { user }) => json(await ranked(user.uid, (await readJson(req)).prefs)));

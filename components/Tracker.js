@@ -1,4 +1,5 @@
 'use client';
+import { safeHref } from '@/lib/client';
 import { useCallback, useEffect, useState } from 'react';
 import { useScout } from './ScoutProvider';
 import Select from './Select';
@@ -19,7 +20,7 @@ function Card({ i, onMove, onNote, onRemove, dragging, setDragging }) {
       onDragStart={e => { e.dataTransfer.setData('text/plain', i.job_id); e.dataTransfer.effectAllowed = 'move'; setDragging(i.job_id); }} onDragEnd={() => setDragging(null)}>
       <div className="kc-head">
         <b title={j.title}>{cleanTitle(j.title)}</b>
-        <a className="kc-open" href={j.url} target="_blank" rel="noopener noreferrer" aria-label="Open the posting" title="Open the posting">↗</a>
+        <a className="kc-open" href={safeHref(j.url)} target="_blank" rel="noopener noreferrer" aria-label="Open the posting" title="Open the posting">↗</a>
       </div>
       <div className="kc-co">{j.company}{j.location ? ' · ' + shortLoc(j.location).split(';')[0] : ''}</div>
       {(closed || j.workMode !== 'unknown' || j.salary) && (

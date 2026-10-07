@@ -30,3 +30,9 @@ Thumbs.db
 npm-debug.log*
 scratch/
 *.tmp
+
+# loose scripts that may contain pasted keys: never commit
+test_*.py
+*.pem
+*.key
+service-account*.json

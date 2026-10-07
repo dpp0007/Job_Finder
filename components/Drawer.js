@@ -1,12 +1,27 @@
 'use client';
+import { safeHref } from '@/lib/client';
 import { useEffect, useState } from 'react';
 import Description from './Description';
+import FitPanel from './FitPanel';
+import { useScout } from './ScoutProvider';
 import { api, hostOf, money } from '@/lib/client';
 
-const PARTS = { title: 'Role', location: 'Location', seniority: 'Level', keywords: 'Keywords', visa: 'Visa', fresh: 'Freshness', resume: 'Skills', salary: 'Pay' };
+const PARTS = { title: 'Role', location: 'Location', seniority: 'Level', keywords: 'Keywords', visa: 'Visa', fresh: 'Freshness', resume: 'Skills', terms: 'Resume wording', exp: 'Experience', family: 'Field', salary: 'Pay' };
 
-export default function Drawer({ job: j, onClose, onClosed }) {
+export default function Drawer({ job: first, onClose, onClosed }) {
+  const { resume, prefs, patchResults } = useScout();
+  const [j, setJob] = useState(first);
   const [ver, setVer] = useState('');
+  const [reading, setReading] = useState(!first.hasDesc);   // the search indexed this listing without its text: read the page now
+  useEffect(() => {
+    if (first.hasDesc) return;
+    let live = true;
+    api('/jobs/read', 'POST', { jobId: first.id, prefs }).then(r => {
+      if (!live) return;
+      setJob(p => ({ ...p, ...r.job, stage: p.stage })); patchResults(list => list.map(x => x.id === first.id ? { ...x, ...r.job, stage: x.stage } : x));
+    }).catch(() => {}).finally(() => live && setReading(false));
+    return () => { live = false; };
+  }, [first.id]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const k = e => e.key === 'Escape' && onClose();
     document.addEventListener('keydown', k);
@@ -31,26 +46,28 @@ export default function Drawer({ job: j, onClose, onClosed }) {
       <h2>{j.title}</h2>
       <div className="muted">{j.company}{j.location ? ' · ' + j.location : ''}</div>
       <div className="row wrap" style={{ margin: '12px 0' }}>
-        <a className="btn" href={j.url} target="_blank" rel="noopener noreferrer">Apply ↗</a>
+        <a className="btn" href={safeHref(j.url)} target="_blank" rel="noopener noreferrer">Apply ↗</a>
         <button className="ghost" onClick={verify}>Check still open</button><span className="muted">{ver}</span>
       </div>
+      <div>{signals.map(s => <span key={s} className="badge">{s}</span>)}{resume && j.fit != null && <span className="badge good">Resume fit {j.fit}%</span>}</div>
       {j.summary && <div className="aibox"><span className="mono">✦ AI summary</span><p>{j.summary}</p>{j.deadline && <p className="sm muted">Apply by {j.deadline}</p>}</div>}
-      {(j.skillsRequired?.length > 0 || j.skillsNice?.length > 0) && <>
-        <h5>Skills the employer asks for</h5>
-        {j.skillsRequired?.map(x => <span key={x} className={'sk' + (j.matched.includes(x) ? ' hit' : '')}>{x}</span>)}
-        {j.skillsNice?.length > 0 && <div className="sm muted" style={{ margin: '10px 0 6px' }}>Nice to have</div>}
-        {j.skillsNice?.map(x => <span key={x} className={'sk' + (j.matched.includes(x) ? ' hit' : '')} style={{ opacity: .7 }}>{x}</span>)}
-      </>}
-      <h5>Why it scored {j.score}</h5>
-      <div className="parts">{Object.entries(j.parts).map(([k, v]) => (
-        <div className="bar1" key={k}><span>{PARTS[k]}</span><i style={{ '--w': `${v * 100}%` }} /><span>{Math.round(v * 100)}</span></div>
-      ))}</div>
-      <div className="why" style={{ marginTop: 8 }}>{j.reasons.join(' · ')}</div>
-      {j.skills.length > 0 && <><h5>Skills in posting</h5>{j.skills.map(s => <span key={s} className={'sk' + (j.matched.includes(s) ? ' hit' : '')}>{s}</span>)}</>}
-      {j.missing.length > 0 && <><h5>Gaps vs your resume</h5>{j.missing.map(s => <span key={s} className="badge warn">{s}</span>)}</>}
-      <h5>Signals</h5><div>{signals.map(s => <span key={s} className="badge">{s}</span>)}</div>
-      <h5>Found on</h5>{j.sources.map(s => <div key={s.url}><a href={s.url} target="_blank" rel="noopener noreferrer">{s.name} — {hostOf(s.url)}</a></div>)}
-      <h5>Job description</h5><Description text={j.desc} title={j.title} url={j.url} />
+
+      <h5>Job description</h5>
+      {reading ? <div className="descv" aria-busy="true"><div className="row"><span className="spin dark" /><b>Reading the full posting…</b></div>{[95, 80, 88, 60].map(w => <span className="shim" key={w} style={{ width: w + '%', height: 14, marginTop: 14 }} />)}</div> : <Description text={j.desc} title={j.title} url={j.url} summary={j.summary} />}
+
+      <h5>Your fit and interview prep</h5>
+      <FitPanel job={j} waiting={reading} />
+
+      <details className="how">
+        <summary>How this job was scored ({j.score}/100)</summary>
+        <div className="parts">{Object.entries(j.parts).map(([k, v]) => (
+          <div className="bar1" key={k}><span>{PARTS[k] || k}</span><i style={{ '--w': `${v * 100}%` }} /><span>{Math.round(v * 100)}</span></div>
+        ))}</div>
+        <div className="why" style={{ marginTop: 8 }}>{j.reasons.join(' · ')}</div>
+        {j.skills.length > 0 && <><div className="sub-h">Skills in the posting</div>{j.skills.map(s => <span key={s} className={'sk' + (j.matched.includes(s) ? ' hit' : '')}>{s}</span>)}</>}
+        {j.missing.length > 0 && <><div className="sub-h">Not on your resume</div>{j.missing.map(s => <span key={s} className="badge warn">{s}</span>)}</>}
+        <div className="sub-h">Found on</div>{j.sources.map(s => <div key={s.url}><a href={safeHref(s.url)} target="_blank" rel="noopener noreferrer">{s.name} — {hostOf(s.url)}</a></div>)}
+      </details>
     </div>
     </>
   );

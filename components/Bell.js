@@ -1,4 +1,5 @@
 'use client';
+import { safeHref } from '@/lib/client';
 import { useEffect, useRef } from 'react';
 import { useScout } from './ScoutProvider';
 import { ago, cleanTitle } from '@/lib/client';
@@ -43,7 +44,7 @@ export default function Bell() {
                 <div className="ntitle">{n.demo && <span className="badge brand">Demo</span>}<b>{n.title}</b></div>
                 <div className="muted sm">{ago(n.created)}</div>
                 {n.jobs.slice(0, 3).map(j => (
-                  <a key={j.id} className="njob" href={j.url} target="_blank" rel="noopener noreferrer"><span className="clip"><b>{cleanTitle(j.title)}</b> · {j.company}</span><span>↗</span></a>
+                  <a key={j.id} className="njob" href={safeHref(j.url)} target="_blank" rel="noopener noreferrer"><span className="clip"><b>{cleanTitle(j.title)}</b> · {j.company}</span><span>↗</span></a>
                 ))}
               </div>
             ))}

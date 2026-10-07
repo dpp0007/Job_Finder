@@ -1,17 +1,20 @@
 'use client';
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { api, stream } from '@/lib/client';
+import { sanitizePrefs } from '@/lib/validate';
 
 const Ctx = createContext(null);
 export const useScout = () => useContext(Ctx);
 
-const EMPTY = { results: [], near: [], dropped: {}, scanned: 0, newSince: 0 };
+const EMPTY = { results: [], near: [], dropped: {}, scanned: 0, newSince: 0, corrected: [] };
 const RESET = { roles: [], locations: [], workMode: 'any', seniority: [], types: [], keywords: [], must: [], exclude: [], visa: 'any', minSalary: 0, postedWithin: 0 };
 
 export function ScoutProvider({ children }) {
   const [status, setStatus] = useState(null);
   const [prefs, setPrefs] = useState(null);
-  const [resume, setResume] = useState('');
+  const [resume, setResume] = useState(null);   // facts about the uploaded resume (never its text), or null
+  const [resumeBusy, setResumeBusy] = useState(false);
+  const [resumeError, setResumeError] = useState('');
   const [data, setData] = useState(EMPTY);
   const [pending, setPending] = useState(null);   // snapshot held back while the user is scrolled down
   const [loaded, setLoaded] = useState(false);
@@ -41,7 +44,7 @@ export function ScoutProvider({ children }) {
     try {
       const [s, p] = await Promise.all([api('/status'), api('/profile')]);
       setStatus(s); setPrefs(p.prefs); setResume(p.resume);
-      setData({ ...EMPTY, ...(await api('/rank', 'POST', { prefs: p.prefs, resume: p.resume })) });
+      setData({ ...EMPTY, ...(await api('/rank', 'POST', { prefs: p.prefs })) });
       ready.current = true;
     } catch (e) { notify(e.message, 'error'); }
     setLoaded(true);
@@ -52,11 +55,11 @@ export function ScoutProvider({ children }) {
   useEffect(() => {
     if (!ready.current || !prefs) return;
     const t = setTimeout(async () => {
-      api('/profile', 'PUT', { prefs, resume }).catch(() => {});
-      if (!running.current) { setPending(null); setData({ ...EMPTY, ...(await api('/rank', 'POST', { prefs, resume }).catch(() => dataRef.current)) }); }
+      api('/profile', 'PUT', { prefs }).catch(() => {});
+      if (!running.current) { setPending(null); setData({ ...EMPTY, ...(await api('/rank', 'POST', { prefs }).catch(() => dataRef.current)) }); }
     }, 500);
     return () => clearTimeout(t);
-  }, [prefs, resume]);
+  }, [prefs]);
 
   const setResults = useCallback((r, newSince = 0) => { setStarted(true); setPending(null); setData({ ...EMPTY, ...r, newSince }); }, []);
   const patchResults = useCallback(fn => setData(d => ({ ...d, results: fn(d.results) })), []);
@@ -73,6 +76,8 @@ export function ScoutProvider({ children }) {
     const P = override?.roles ? override : prefs;
     if (!status?.configured) return notify('Scout can’t search yet: add TINYFISH_API_KEY to the server’s .env file and restart.', 'error');
     if (!P.roles.length && !P.keywords.length) return setFormError('Add a role (or a keyword) so Scout knows what to look for.');
+    const bad = sanitizePrefs(P).errors[0];
+    if (bad) return setFormError(bad.message);
     setFormError('');
     setStarted(true);
     running.current = true;
@@ -82,7 +87,7 @@ export function ScoutProvider({ children }) {
     push(false);
     const started = Date.now();
     try {
-      await stream('/search', { prefs: P, resume }, ev => {
+      await stream('/search', { prefs: P }, ev => {
         if (ev.type === 'stage') { stages.push(ev); push(false); if (ev.api === 'error' && /AI reading/.test(ev.msg)) notify(ev.msg, 'error'); }
         if (ev.type === 'progress' || ev.type === 'batch') { stats = ev.stats; push(false); }
         if (ev.type === 'results') offer(ev, started);
@@ -96,11 +101,39 @@ export function ScoutProvider({ children }) {
     running.current = false;
     setRun(r => r && { ...r, done: true });
     refreshStatus();
-  }, [status, prefs, resume, notify, offer, refreshStatus]);
+  }, [status, prefs, notify, offer, refreshStatus]);
 
   const rerank = useCallback(async () => {
-    try { setData({ ...EMPTY, ...(await api('/rank', 'POST', { prefs, resume })) }); } catch { /* keep what is on screen */ }
-  }, [prefs, resume]);
+    try { setData({ ...EMPTY, ...(await api('/rank', 'POST', { prefs })) }); } catch { /* keep what is on screen */ }
+  }, [prefs]);
+
+  // ---- resume: checked here for instant feedback, and again on the server, which is the real gate ----
+  const uploadResume = useCallback(async file => {
+    setResumeError('');
+    const ext = (file?.name.match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase();
+    const fail = m => { setResumeError(m); notify(m, 'error'); };
+    if (!file) return;
+    if (!['pdf', 'docx', 'txt', 'md'].includes(ext)) return fail(`“${file.name}” isn’t a resume file. Upload a PDF, DOCX or TXT.`);
+    if (!file.size) return fail('That file is empty.');
+    if (file.size > 4 * 1024 * 1024) return fail(`That file is ${(file.size / 1048576).toFixed(1)} MB. Resumes must be under 4 MB.`);
+    setResumeBusy(true);
+    try {
+      const form = new FormData(); form.append('file', file);
+      let r;
+      try { r = await fetch('/api/resume', { method: 'POST', body: form }); } catch { throw new Error('Can’t reach Scout’s server. Is it still running?'); }
+      if (r.status === 401) { location.assign('/login'); return; }
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `Upload failed (${r.status})`);
+      setResume(j.resume);
+      notify(`Resume added: ${j.resume.skills.length} skills found. Matches now use it.`);
+      await rerank();
+    } catch (e) { fail(e.message); }
+    setResumeBusy(false);
+  }, [notify, rerank]);
+
+  const removeResume = useCallback(async () => {
+    try { await api('/resume', 'DELETE'); setResume(null); setResumeError(''); notify('Resume removed'); await rerank(); } catch (e) { notify(e.message, 'error'); }
+  }, [notify, rerank]);
 
   // ---- alerts: poll for notifications and for slow background work (cheap, only while the tab is visible) ----
   useEffect(() => { if (typeof Notification !== 'undefined') setPerm(Notification.permission); }, []);
@@ -158,13 +191,13 @@ export function ScoutProvider({ children }) {
 
   // Demo: sends a real notification through the same path an alert uses, with openings already in your index.
   const sendDemo = useCallback(async () => {
-    try { await api('/notifications/demo', 'POST', { prefs, resume }); await pollNotifs(); setBellOpen(true); }
+    try { await api('/notifications/demo', 'POST', { prefs }); await pollNotifs(); setBellOpen(true); }
     catch (e) { notify(e.message, 'error'); }
-  }, [prefs, resume, pollNotifs, notify]);
+  }, [prefs, pollNotifs, notify]);
 
   // One-click example: fill the preferences and run immediately.
   const runExample = useCallback(({ label, ...ex }) => { const next = { ...prefs, ...RESET, ...ex }; setPrefs(next); search(next); }, [prefs, search]);
 
-  const value = { status, refreshStatus, prefs, setPref, setPrefs, resume, setResume, data, setResults, patchResults, pending, flushPending, loaded, started, setStarted, run, search, runExample, formError, setFormError, toast, notify, dismissToast, tab, setTab, jump, setJump, rerank, notifs, bellOpen, setBellOpen, perm, enableDesktop, markRead, sendDemo };
+  const value = { status, refreshStatus, prefs, setPref, setPrefs, resume, resumeBusy, resumeError, uploadResume, removeResume, data, setResults, patchResults, pending, flushPending, loaded, started, setStarted, run, search, runExample, formError, setFormError, toast, notify, dismissToast, tab, setTab, jump, setJump, rerank, notifs, bellOpen, setBellOpen, perm, enableDesktop, markRead, sendDemo };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

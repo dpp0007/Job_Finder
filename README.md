@@ -26,7 +26,7 @@ Job hunting means opening the same careers pages every week, re-typing the same 
 
 Scout does that weekly loop for you, with live data:
 
-- **You say what you want once:** role, city, seniority, work mode, pay floor, visa needs, keywords, even your resume.
+- **You say what you want once:** role, city, seniority, work mode, pay floor, visa needs, keywords, your resume.
 - **Scout goes and reads the live web:** ATS job boards, company careers pages and portals, including Indian ones like Internshala, Naukri, Instahyre and Cutshort.
 - **You get a short, ranked, honest list:** each opening has a 0–100 match score, the reasons behind it, structured pay and visa signals, and a direct apply link.
 - **It keeps working after you close the tab:** saved searches re-run on a schedule and notify you when something new matches.
@@ -44,7 +44,10 @@ Scout does that weekly loop for you, with live data:
 | **Application tracker** | Save jobs, drag them between Saved, Applied, Interview, Offer and Rejected, add notes, and get warned when a listing closes. |
 | **Company watchlist** | Track employers by name or careers link; Scout reads their board straight away and in every search. |
 | **Alerts** | Save a search as an alert. A scheduler re-runs it and notifies you through an in-app bell, desktop notifications and optional Telegram. |
-| **Resume skill gap** | Paste your resume to see which skills a posting asks for that you already have, and which you are missing. |
+| **Resume upload and fit** | Upload a PDF, DOCX or TXT resume (anything else is refused with a reason). Scout reads your skills, experience and field, adds a resume-fit score to every job, and can sort by it. |
+| **Pros, cons and interview prep** | Open a job: after the description you get what works for you, the gaps to close, topics to revise, likely questions and a prep plan. Written by Gemini when enabled, otherwise built from the posting and your resume. |
+| **Clean job descriptions** | Footers, sign-up walls, hashtags, tables and "similar jobs" lists are removed; every posting shows the role, duties and requirements first, with company background and benefits behind one toggle. |
+| **Only job-related input** | Roles, places, keywords and company names are validated in the browser and on the server; gibberish, questions, links and code are refused with a reason. |
 | **Built for India** | ₹ pay formats, Indian city aliases (Bengaluru/Bangalore, Gurugram/Delhi NCR), Indian portals, internship stipends. |
 | **Export** | One-click CSV of your results. |
 
@@ -82,9 +85,11 @@ The full story, with the exact TinyFish parameters, throttling and failure handl
 git clone <your-repo-url> scout
 cd scout
 npm install
-cp .env.example .env        # then add your TINYFISH_API_KEY
+cp .env.example .env        # add TINYFISH_API_KEY, and for local sign-in: DEV_LOGIN_EMAIL=you@example.com
 npm run dev                 # http://localhost:3000
 ```
+
+Scout is **login-protected**. Locally, set `DEV_LOGIN_EMAIL` (and put the same address in `ADMIN_EMAILS`) and press the "local test account" button on the sign-in page; that shortcut does not exist in production builds. For real Google or GitHub sign-in see [`docs/DEPLOY.md`](docs/DEPLOY.md).
 
 Open the app, enter a role and a city, and press **Search live**. First results appear within seconds; the search finishes inside its time budget.
 
@@ -101,12 +106,12 @@ It prints a ✓ or ✗ for each part and says exactly what to fix. Typical outpu
 
 ### Production
 
+**Read [`docs/DEPLOY.md`](docs/DEPLOY.md)** (Hostinger VPS or Node.js hosting, OAuth setup, Nginx, every credential) and [`SECURITY.md`](SECURITY.md) before exposing Scout to the internet. In short: HTTPS, `APP_URL`, `AUTH_SECRET`, an OAuth client, an allow-list of who may sign in, and `TRUST_PROXY=true` behind a proxy.
+
 ```bash
-npm run build
+npm ci && npm run build
 npm start
 ```
-
-Scout stores its data in a local SQLite file (`data/scout.db`), so run it on a machine with a persistent disk. The alert scheduler only runs while the server is running.
 
 ## Deploying
 
@@ -235,7 +240,10 @@ Everything the UI does is available over HTTP. `search` and `companies/scan` str
 | Method | Route | Purpose |
 |---|---|---|
 | `GET` | `/api/status` | Whether keys are configured (never the keys), usage, AI state, background work |
-| `GET` `PUT` | `/api/profile` | Saved preferences and resume |
+| `GET` `PUT` | `/api/profile` | Saved preferences (and the resume facts, never its text) |
+| `POST` `DELETE` | `/api/resume` | Upload (multipart `file`) or remove the resume; validated by content, not file name |
+| `POST` | `/api/analyze` | Pros, cons and interview prep for one job against the resume |
+| `POST` | `/api/jobs/read` | Read the posting pages of listings that were indexed without text |
 | `POST` | `/api/rank` | Rank the stored index against preferences (instant, no network) |
 | `POST` | `/api/search` | Run a live search; streams progress and ranked snapshots |
 | `GET` `POST` | `/api/tracker` | Saved and applied jobs |
@@ -250,7 +258,7 @@ Everything the UI does is available over HTTP. `search` and `companies/scan` str
 ## Tests
 
 ```bash
-npm test                 # SQLite: storage contract + the full discovery pipeline
+npm test                 # security (sign-in, sessions, CSRF, rate limits), typo fixing, resume upload and validation, description cleaning, storage contract, full discovery pipeline
 npm run test:firestore   # the same two suites on Google's Firestore emulator (needs Java 21+)
 ```
 
@@ -260,6 +268,8 @@ npm run test:firestore   # the same two suites on Google's Firestore emulator (n
 Neither needs a network connection or any API key. `test:firestore` downloads Google's emulator on first run.
 
 ## Security and privacy
+
+Full details, limits and a go-live checklist: **[SECURITY.md](SECURITY.md)**. Highlights: OAuth-only sign-in with an allow-list (no passwords), sealed HttpOnly session cookies, per-user data isolation, CSRF and CSP protection, input validation on every field, rate limits and daily quotas, safe uploads, hidden internal errors, and a "Delete my data" button.
 
 - API keys live in `.env` and are read on the server only. The browser is told whether a key is configured, never its value.
 - `.env`, the local database and build output are git-ignored. `.env.example` contains no secrets.
