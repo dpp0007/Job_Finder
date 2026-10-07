@@ -35,7 +35,7 @@ function Card({ i, onMove, onNote, onRemove, dragging, setDragging }) {
       <div className="kc-meta">{VERB[i.stage]} {ago(i.updated)}</div>
       <div className="kc-actions">
         {next ? <button className="step" onClick={() => onMove(i, next[0])}>{next[1]} →</button> : <span />}
-        <Select variant="small" display="Move" value={i.stage} label={`Move ${cleanTitle(j.title)}`} align="right"
+        <Select variant="icon" display="⋯" value={i.stage} label={`Move ${cleanTitle(j.title)}`} align="right"
           onChange={v => (v === '__remove' ? onRemove(i) : onMove(i, v))} options={[...STAGES, ['__remove', 'Remove from tracker', 'danger']]} />
       </div>
     </div>

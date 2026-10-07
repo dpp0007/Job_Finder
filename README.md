@@ -99,6 +99,24 @@ npm start
 
 Scout stores its data in a local SQLite file (`data/scout.db`), so run it on a machine with a persistent disk. The alert scheduler only runs while the server is running.
 
+## Deploying
+
+Scout is a normal Next.js app, but it keeps its data in a **local SQLite file** and runs a background alert scheduler, which suits a server with a disk better than a serverless platform.
+
+| Host | What to expect |
+|---|---|
+| **Your machine, a VPS, Railway, Render or Fly.io (with a volume)** | Everything works, including persistent data and scheduled alerts. Recommended. |
+| **Vercel / serverless** | The app runs, with caveats below. |
+
+**On Vercel**
+- Set `TINYFISH_API_KEY` (and optionally `GEMINI_API_KEY`) under *Project → Settings → Environment Variables*, set the Node.js version to **22.x**, then redeploy. A `.env` file is not deployed.
+- **Storage is temporary.** The project folder is read-only, so Scout uses the temp directory. Saved jobs, the tracker, alerts and the search cache can disappear when an instance is recycled or when a request lands on a different instance. The app shows a notice when this is the case.
+- **No scheduler.** Serverless functions can't run a background timer, so scheduled alerts don't fire. (The *Send a demo alert* button still works.)
+- **Long searches** stream for up to the depth's time budget (40 / 75 / 150 s). Make sure your plan's function duration allows it, or use Quick depth.
+- Slow background work (a TinyFish Agent run) may be cut off once the response ends.
+
+For persistent data on Vercel, the storage layer would need to move to a hosted database such as Turso (libSQL) or Postgres; see the roadmap.
+
 ## Configuration
 
 All configuration is through environment variables in `.env`. Keys never reach the browser.
@@ -197,6 +215,7 @@ Three offline suites cover parsing and feature extraction, ranking and every fil
 
 ## Roadmap
 
+- Hosted database adapter (Turso / Postgres) so Scout can run on Vercel with permanent data
 - Hosted worker so alerts fire when your laptop is closed
 - Email and WhatsApp delivery
 - Semantic matching with embeddings ("ML engineer" ≈ "applied scientist")

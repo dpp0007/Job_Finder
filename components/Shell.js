@@ -21,6 +21,7 @@ export default function Shell() {
           ? <span><span className="dot off" />Setup needed: add TINYFISH_API_KEY to the server’s .env file and restart</span>
           : <span><span className="dot" />Live data via TinyFish{u ? ` · ${u.search} searches · ${u.fetch} pages read · ${u.agent} agent runs this session` : ''}{status?.ai?.problem ? ` · ⚠ AI reading paused: ${status.ai.problem}` : status?.ai?.enabled ? ` · AI reading on (${status.ai.usage.ok} postings)` : ' · AI reading off (optional: add GEMINI_API_KEY)'}</span>}
       </div>
+      {status?.storage?.ephemeral && <div className="notice" role="note">Temporary storage: this deployment can’t keep data between restarts, so saved jobs, your tracker and alerts may reset. For permanent data, run Scout on a host with a persistent disk.</div>}
       <header className="top">
         <div className="wrap">
           <div className="brand"><span className="logo" />Scout</div>
@@ -43,7 +44,7 @@ export default function Shell() {
           <RunPanel />
           <Results />
         </section>
-        {tab === 'tracker' && <section className="page wide"><Tracker /></section>}
+        {tab === 'tracker' && <section className="page"><Tracker /></section>}
         {tab === 'companies' && <section className="page"><Companies /></section>}
         {tab === 'alerts' && <section className="page"><Alerts /></section>}
       </main>

@@ -1,4 +1,4 @@
-import { all } from '@/lib/db';
+import { all, storage } from '@/lib/db';
 import * as tf from '@/lib/tinyfish';
 import '@/lib/service';
 import { PORTALS } from '@/lib/discover';
@@ -12,6 +12,7 @@ export const GET = handler(async () => json({
   portals: PORTALS.map(({ id, label }) => ({ id, label })),
   alerts: all('SELECT SUM(new_count) n FROM searches')[0].n || 0,
   ai: { enabled: llmEnabled(), keyPresent: llmKeyPresent(), problem: llmState.error?.message || null, model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite', usage: llmUsage, costUsd: llmCostUsd() },
+  storage: { ephemeral: storage.ephemeral }, // true on serverless hosts: data does not survive a restart
   unread: listNotifications().unread, channels: channels(),
   background: globalThis.__bg || 0, // slow tasks (e.g. an Agent on a hard site) still finishing after a search returned
 }));
