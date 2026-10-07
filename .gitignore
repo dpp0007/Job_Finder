@@ -1,0 +1,32 @@
+# dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+next-env.d.ts
+
+# secrets and local configuration: never commit real keys
+.env
+.env.*
+!.env.example
+
+# local data: the SQLite job index, tracker, alerts and notifications live here
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# editor, tooling and OS files
+.claude/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# logs and scratch
+*.log
+npm-debug.log*
+scratch/
+*.tmp
